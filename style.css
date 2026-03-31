@@ -584,7 +584,12 @@ header p {
 }
 .api-key-dot.set { background: #43a047; }
 
-@media (max-width: 500px) {
+@media (max-width: 767px) {
+  /* Mobile: let the page scroll naturally, no viewport lock */
+  body {
+    height: auto;
+    overflow: visible;
+  }
   .btn-row { flex-direction: column; }
   .form-row { flex-direction: column; }
 }

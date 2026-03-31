@@ -271,7 +271,12 @@ async function appSearch() {
 
   try {
     const approx = document.getElementById('approxLen')?.checked ? 1 : 0;
-    const results = await askGemini(pattern, hint, category, wordLengths, approx);
+    let results = await askGemini(pattern, hint, category, wordLengths, approx);
+    // Never return the hint word itself as a result
+    if (hint) {
+      const hintLower = hint.trim().toLowerCase();
+      results = results.filter(r => r.answer.trim().toLowerCase() !== hintLower);
+    }
     const { matched, filteredOut } = splitByLength(results, pattern, wordLengths, approx);
     renderResults(matched, filteredOut);
   } catch (err) {
@@ -362,10 +367,16 @@ function renderResults(results, filteredOut = 0) {
   sizeResultsDiv();
 }
 
-// ---- Size results div to fill remaining viewport ----
+// ---- Size results div to fill remaining viewport (desktop only) ----
 function sizeResultsDiv() {
+  if (window.innerWidth <= 767) {
+    // Mobile: no fixed height, page scrolls naturally
+    resultsDiv.style.height = '';
+    resultsDiv.style.overflowY = '';
+    return;
+  }
   const top = resultsDiv.getBoundingClientRect().top;
-  const h = window.innerHeight - top - 28; // 14px bottom padding of card
+  const h = window.innerHeight - top - 28;
   resultsDiv.style.height = Math.max(80, h) + 'px';
   resultsDiv.style.overflowY = 'auto';
 }
