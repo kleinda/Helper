@@ -308,6 +308,20 @@ hintInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); appSearch(); }
 });
 
+// ---- Mobile pattern helpers ----
+function mobileInsertChar(ch) {
+  const inp = document.getElementById('mobilePattern');
+  if (!inp) return;
+  const start = inp.selectionStart;
+  const end   = inp.selectionEnd;
+  inp.value = inp.value.slice(0, start) + ch + inp.value.slice(end);
+  inp.setSelectionRange(start + ch.length, start + ch.length);
+  inp.dispatchEvent(new Event('input'));
+  inp.focus();
+}
+window.mobileInsertUnknown   = () => mobileInsertChar('_');
+window.mobileInsertWordBreak = () => mobileInsertChar(' ');
+
 // Mobile pattern input
 const mobilePatInput = document.getElementById('mobilePattern');
 if (mobilePatInput) {

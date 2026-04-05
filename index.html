@@ -36,10 +36,15 @@
           placeholder="ב__רק"
           autocomplete="off" spellcheck="false" dir="rtl"
           style="font-size:1.8rem;font-weight:bold;text-align:center;letter-spacing:6px;padding:12px">
-        <span class="pattern-hint" style="margin-top:4px;display:block">
-          אות ידועה = אות עברית &nbsp;·&nbsp; נקודה / קו תחתון = אות לא ידועה &nbsp;·&nbsp; רווח = מילה חדשה
-        </span>
-        <button type="button" class="btn-box-action btn-clear" style="margin-top:6px;width:fit-content" onclick="window.clearBoxes()">✕ נקה</button>
+        <div class="box-actions" style="margin-top:6px">
+          <button type="button" class="btn-box-action btn-unknown" onclick="window.mobileInsertUnknown()">_ אות לא ידועה</button>
+          <button type="button" class="btn-box-action btn-wordsep" onclick="window.mobileInsertWordBreak()">| מילה חדשה</button>
+          <button type="button" class="btn-box-action btn-clear"   onclick="window.clearBoxes()">✕ נקה</button>
+        </div>
+        <div style="font-size:0.82rem;color:#888;margin-top:6px;line-height:1.7">
+          <strong>הקלד אותיות ידועות</strong> · לאות לא ידועה לחץ <strong>_ אות לא ידועה</strong> · לשתי מילים לחץ <strong>| מילה חדשה</strong> בין המילים<br>
+          דוגמה: <span style="font-family:monospace;letter-spacing:2px">ב__רק</span> = מילה של 5 אותיות, ב' בהתחלה ו-ר"ק בסוף &nbsp;|&nbsp; <span style="font-family:monospace;letter-spacing:2px">ב__ רק</span> = שתי מילים
+        </div>
       </div>
 
       <!-- Word-length alternative (no letters known) -->
@@ -56,7 +61,8 @@
       <!-- Hint -->
       <div class="form-group" style="margin-bottom: 14px">
         <label for="hintInput">רמז</label>
-        <textarea id="hintInput"></textarea>
+        <textarea id="hintInput"
+          autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
       </div>
 
       <!-- Category (sorted א-ב) -->
