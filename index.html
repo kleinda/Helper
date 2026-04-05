@@ -108,7 +108,9 @@
         <br>המפתח נשמר רק בדפדפן שלך.
         <br>חינמי: עד <strong>1,000 בקשות ביום</strong>.
       </p>
-      <input type="password" id="keyInput" placeholder="gsk_...">
+      <input type="text" id="keyInput" placeholder="gsk_..."
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        inputmode="text" style="direction:ltr">
       <div class="modal-buttons">
         <button class="btn btn-secondary" onclick="window.appCloseModal()">ביטול</button>
         <button class="btn btn-primary"   onclick="window.appSaveKey()">שמור</button>

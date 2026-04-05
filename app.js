@@ -311,7 +311,17 @@ hintInput.addEventListener('keydown', e => {
 // Mobile pattern input
 const mobilePatInput = document.getElementById('mobilePattern');
 if (mobilePatInput) {
-  mobilePatInput.addEventListener('input', syncWlFromMobileInput);
+  mobilePatInput.addEventListener('input', () => {
+    // Convert non-Hebrew chars to _ in real-time (hyphens → space for word break)
+    const raw = mobilePatInput.value;
+    const pos = mobilePatInput.selectionStart;
+    const converted = raw.replace(/-+/g, ' ').replace(/[^\u05D0-\u05EA\s_]/g, '_');
+    if (converted !== raw) {
+      mobilePatInput.value = converted;
+      mobilePatInput.setSelectionRange(pos, pos);
+    }
+    syncWlFromMobileInput();
+  });
   mobilePatInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') { e.preventDefault(); appSearch(); }
   });
