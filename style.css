@@ -35,19 +35,33 @@ body {
 /* Header */
 header {
   text-align: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 header h1 {
-  font-size: 2rem;
+  font-size: 1.5rem;
   color: #1a73e8;
-  margin-bottom: 4px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
-header p {
-  color: #555;
-  font-size: 0.95rem;
+.help-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #1a73e8;
+  background: white;
+  color: #1a73e8;
+  font-size: 0.8rem;
+  font-weight: bold;
+  cursor: pointer;
+  line-height: 1;
+  flex-shrink: 0;
 }
+.help-btn:hover { background: #e8f0fe; }
 
 /* Card */
 .card {
@@ -316,11 +330,11 @@ header p {
 .btn-primary:hover { background: #3451d1; }
 
 .btn-ai {
-  background: #f72585;
+  background: #e8a020;
   color: white;
   flex: 1;
 }
-.btn-ai:hover { background: #d91a70; }
+.btn-ai:hover { background: #c8880e; }
 .btn-ai:disabled {
   background: #ccc;
   cursor: not-allowed;
@@ -374,6 +388,15 @@ header p {
   border-color: #c5ceff;
 }
 
+/* Exact length match */
+.result-item.exact-match {
+  background: #fffde7;
+  border-color: #f9c74f;
+}
+.result-item.exact-match:hover {
+  background: #fff9c4;
+}
+
 .result-word {
   font-size: 1.3rem;
   font-weight: bold;
@@ -393,6 +416,14 @@ header p {
 .result-cat.cat-names   { background: #fce4ec; color: #c62828; }
 .result-cat.cat-places  { background: #e8f5e9; color: #2e7d32; }
 .result-cat.cat-concepts{ background: #fff3e0; color: #e65100; }
+
+/* Local DB badge */
+.local-badge {
+  font-size: 0.8rem;
+  opacity: 0.55;
+  flex-shrink: 0;
+  cursor: default;
+}
 
 /* Rank badge */
 .rank-badge {
@@ -584,12 +615,19 @@ header p {
 }
 .api-key-dot.set { background: #43a047; }
 
+.mobile-only { display: none; }
+
 @media (max-width: 767px) {
   /* Mobile: let the page scroll naturally, no viewport lock */
   body {
     height: auto;
     overflow: visible;
+    padding: 8px 12px;
   }
-  .btn-row { flex-direction: column; }
+  .desktop-only { display: none; }
+  .mobile-only  { display: flex; flex-direction: column; }
+  .btn-row  { flex-direction: column; }
   .form-row { flex-direction: column; }
+  .word-length-section { flex-wrap: wrap; gap: 8px; }
+  .wl-title { width: 100%; text-align: center; }
 }

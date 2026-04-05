@@ -1,5 +1,6 @@
 // app.js - Main logic
 import { askGemini, getApiKey, saveApiKey, clearApiKey } from './ai.js';
+import { HEB_WORDS_DB } from './HebWordsHard.js';
 
 // ---- DOM refs ----
 const hintInput      = document.getElementById('hintInput');
@@ -89,6 +90,43 @@ function toggleWordBreak(afterIdx) {
     wordBreaks.add(afterIdx);
   }
   updateDividerUI();
+  syncWordLengthsFromPattern();
+}
+
+// ---- Auto-sync wl fields from boxes (real-time) ----
+function syncWordLengthsFromPattern() {
+  // Find last filled box
+  let lastFilled = 0;
+  for (let i = NUM_BOXES; i >= 1; i--) {
+    const b = document.getElementById(`lb-${i}`);
+    if (b.dataset.unknown === 'true' || (b.value && b.value !== '·')) {
+      lastFilled = i;
+      break;
+    }
+  }
+
+  // No boxes filled → clear all wl fields
+  if (!lastFilled) {
+    for (let i = 1; i <= 3; i++) document.getElementById(`wl${i}`).value = '';
+    return;
+  }
+
+  // Count letters per word segment, splitting at wordBreaks
+  const wordLens = [];
+  let currentLen = 0;
+  for (let i = 1; i <= lastFilled; i++) {
+    const b = document.getElementById(`lb-${i}`);
+    if (b.dataset.unknown === 'true' || (b.value && b.value !== '·')) currentLen++;
+    if (wordBreaks.has(i)) {
+      wordLens.push(currentLen);
+      currentLen = 0;
+    }
+  }
+  if (currentLen > 0) wordLens.push(currentLen);
+
+  for (let i = 0; i < 3; i++) {
+    document.getElementById(`wl${i + 1}`).value = i < wordLens.length && wordLens[i] > 0 ? wordLens[i] : '';
+  }
 }
 
 function updateDividerUI() {
@@ -109,6 +147,7 @@ function onBoxInput(e) {
   delete box.dataset.unknown;
 
   if (hebrew) focusBox(+box.dataset.idx + 1);
+  syncWordLengthsFromPattern();
 }
 
 function onBoxKeydown(e) {
@@ -128,6 +167,7 @@ function onBoxKeydown(e) {
         updateDividerUI();
         focusBox(idx - 1);
       }
+      syncWordLengthsFromPattern();
       break;
 
     case ' ':
@@ -135,6 +175,7 @@ function onBoxKeydown(e) {
       e.preventDefault();
       setUnknown(box);
       focusBox(idx + 1);
+      syncWordLengthsFromPattern();
       break;
 
     case '-':
@@ -190,11 +231,41 @@ function clearBoxes() {
   }
   wordBreaks.clear();
   updateDividerUI();
-  focusBox(1);
+  hintInput.value = '';
+  const mob = document.getElementById('mobilePattern');
+  if (mob) { mob.value = ''; syncWlFromMobileInput(); }
+  if (window.innerWidth > 767) focusBox(1);
+}
+
+// ---- Mobile: parse free-text pattern ----
+function parseMobilePattern(raw) {
+  if (!raw || !raw.trim()) return '';
+  const words = raw.trim().split(/[\s\-]+/).filter(Boolean);
+  return words.map(w =>
+    [...w].map(c => (c >= '\u05D0' && c <= '\u05EA') ? c : '_').join('')
+  ).filter(w => w.length > 0).join(' ');
+}
+
+function syncWlFromMobileInput() {
+  const raw = document.getElementById('mobilePattern')?.value || '';
+  const pat = parseMobilePattern(raw);
+  if (!pat) {
+    for (let i = 1; i <= 3; i++) document.getElementById(`wl${i}`).value = '';
+    return;
+  }
+  const words = pat.split(' ');
+  for (let i = 0; i < 3; i++) {
+    const wl = document.getElementById(`wl${i + 1}`);
+    wl.value = i < words.length && words[i].length > 0 ? words[i].length : '';
+  }
 }
 
 // ---- Read pattern from boxes (split by word breaks) ----
 function getPattern() {
+  // Mobile: read from text input
+  if (window.innerWidth <= 767) {
+    return parseMobilePattern(document.getElementById('mobilePattern')?.value || '');
+  }
   // Find last filled box
   let lastFilled = 0;
   for (let i = NUM_BOXES; i >= 1; i--) {
@@ -237,7 +308,16 @@ hintInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); appSearch(); }
 });
 
-// ---- Search → Gemini ----
+// Mobile pattern input
+const mobilePatInput = document.getElementById('mobilePattern');
+if (mobilePatInput) {
+  mobilePatInput.addEventListener('input', syncWlFromMobileInput);
+  mobilePatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); appSearch(); }
+  });
+}
+
+// ---- Search: local-first + AI in background ----
 async function appSearch() {
   let   pattern     = getPattern();
   const wordLengths = getWordLengths();
@@ -245,7 +325,6 @@ async function appSearch() {
   const category    = categorySelect.value;
 
   // Merge: if pattern has fewer letters than wordLengths, pad with underscores
-  // e.g. pattern="ס" + wordLength=3 → "ס__"
   if (pattern && wordLengths.length > 0) {
     const patWords = pattern.split(' ');
     if (patWords.length === wordLengths.length) {
@@ -262,30 +341,78 @@ async function appSearch() {
     return;
   }
 
-  if (!getApiKey()) { appSetKey(); return; }
+  const approx = document.getElementById('approxLen')?.checked ? 1 : 0;
+  const hintSet = hint
+    ? new Set(hint.trim().toLowerCase().split(/\s+/).filter(w => w.length > 1))
+    : new Set();
 
-  setLoading(true);
+  // When hint is given without explicit word lengths → skip length filtering
+  const skipLengthFilter = !!(hint && wordLengths.length === 0);
+  const patternForFilter = skipLengthFilter ? '' : pattern;
+
+  // Name-type clues → local DB irrelevant
+  const isNameClue = hint && (/שם פרטי/.test(hint) || /שם משפחה/.test(hint));
+
+  // Local DB is a Hebrew word dictionary — relevant only when:
+  // • no hint (pattern/length only), OR
+  // • hint suggests synonym/word search, OR
+  // • category is "words"
+  const isWordHint = hint && /מיל(ה|ון|וג)|נרדפת|מקבילה|שם נרדף|ביטוי|דומה|פועל|תואר/.test(hint);
+  const useLocalDB = !isNameClue && (!hint || isWordHint || category === 'words');
+
+  // --- Step 1: Local search (instant, 0ms) ---
+  const localRaw = useLocalDB ? searchLocalDB(pattern, hint, wordLengths)
+    .filter(r => !hintSet.has(r.answer.trim().toLowerCase())) : [];
+  const { matched: localMatched, filteredOut: localFilteredOut } = splitByLength(localRaw, patternForFilter, wordLengths, approx);
+
   resultsCard.style.display = 'block';
-  resultsDiv.innerHTML = '<p class="status-msg">מחפש...</p>';
   resultsCount.textContent = '';
 
+  if (localMatched.length > 0) {
+    renderResults(localMatched, localFilteredOut);
+  } else {
+    resultsDiv.innerHTML = '<p class="status-msg">מחפש...</p>';
+  }
+
+  // --- Step 2: AI search (requires key) ---
+  if (!getApiKey()) {
+    if (localMatched.length === 0) appSetKey();
+    return;
+  }
+
+  setLoading(true);
+
+  // Append "searching AI" note under local results
+  if (localMatched.length > 0) {
+    const note = document.createElement('p');
+    note.className = 'status-ai status-msg';
+    note.textContent = 'מחפש גם ב-AI...';
+    resultsDiv.appendChild(note);
+  }
+
   try {
-    const approx = document.getElementById('approxLen')?.checked ? 1 : 0;
-    let results = await askGemini(pattern, hint, category, wordLengths, approx);
-    // Never return the hint word itself as a result
-    if (hint) {
-      const hintLower = hint.trim().toLowerCase();
-      results = results.filter(r => r.answer.trim().toLowerCase() !== hintLower);
-    }
-    const { matched, filteredOut } = splitByLength(results, pattern, wordLengths, approx);
+    const aiResults = await askGemini(pattern, hint, category, wordLengths, approx);
+
+    // Merge: local first, then new AI results (deduplicated)
+    const seen = new Set(localRaw.map(r => r.answer));
+    const newFromAI = aiResults.filter(r => !seen.has(r.answer) && !hintSet.has(r.answer.trim().toLowerCase()));
+    const allResults = [...localRaw, ...newFromAI];
+
+    const { matched, filteredOut } = splitByLength(allResults, patternForFilter, wordLengths, approx);
     renderResults(matched, filteredOut);
   } catch (err) {
-    if (err.message === 'NO_API_KEY')           showError('מפתח API לא מוגדר');
-    else if (err.message === 'INVALID_KEY')     showError('מפתח API לא תקין');
-    else if (err.message === 'MODEL_NOT_FOUND') showError('מודל לא נמצא. וודא שהמפתח הוא מ-aistudio.google.com');
-    else if (err.message.startsWith('QUOTA:'))  showError('חרגת ממכסת השימוש החינמי. נסה מחר.');
-    else                                         showError('שגיאה: ' + err.message);
-    if (err.message === 'NO_API_KEY') appSetKey();
+    if (localMatched.length > 0) {
+      // Keep local results, just remove the "searching AI" spinner note
+      const note = resultsDiv.querySelector('.status-ai');
+      if (note) note.remove();
+    } else {
+      if (err.message === 'NO_API_KEY')           showError('מפתח API לא מוגדר');
+      else if (err.message === 'INVALID_KEY')     showError('מפתח API לא תקין');
+      else if (err.message === 'MODEL_NOT_FOUND') showError('מודל לא נמצא — נסה למחוק ולהכניס מחדש את מפתח Groq');
+      else if (err.message.startsWith('QUOTA:'))  showError('חרגת ממכסת השימוש החינמי. נסה מחר.');
+      else                                         showError('שגיאה: ' + err.message);
+      if (err.message === 'NO_API_KEY') appSetKey();
+    }
   } finally {
     setLoading(false);
   }
@@ -294,10 +421,10 @@ async function appSearch() {
 // ---- Split results: matched = correct length, filteredOut = wrong length ----
 function splitByLength(results, pattern, wordLengths, tolerance = 0) {
   let expected = [];
-  if (pattern) {
+  if (wordLengths.length > 0) {
+    expected = wordLengths;           // explicit user input wins
+  } else if (pattern) {
     expected = pattern.split(' ').map(wp => [...wp].length);
-  } else if (wordLengths.length > 0) {
-    expected = wordLengths;
   }
   if (expected.length === 0) return { matched: results, filteredOut: 0 };
 
@@ -305,19 +432,76 @@ function splitByLength(results, pattern, wordLengths, tolerance = 0) {
   let filteredOut = 0;
   for (const r of results) {
     const words = r.answer.trim().split(/\s+/);
-    const ok = words.length === expected.length &&
-      words.every((w, i) => {
-        const n = [...w].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
-        return Math.abs(n - expected[i]) <= tolerance;
-      });
-    if (ok) matched.push(r); else filteredOut++;
+    if (words.length !== expected.length) { filteredOut++; continue; }
+    const exact = words.every((w, i) => {
+      const n = [...w].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
+      return n === expected[i];
+    });
+    const ok = exact || words.every((w, i) => {
+      const n = [...w].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
+      return Math.abs(n - expected[i]) <= tolerance;
+    });
+    if (ok) matched.push({ ...r, exact }); else filteredOut++;
   }
-  // Sort by total letter count descending
+  // Sort: exact length match first, then by total letter count ascending
   matched.sort((a, b) => {
+    if (a.exact !== b.exact) return a.exact ? -1 : 1;
     const count = s => [...s].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
-    return count(b.answer) - count(a.answer);
+    return count(a.answer) - count(b.answer);
   });
   return { matched, filteredOut };
+}
+
+// ---- Local dictionary search (HebWordsHard.js) ----
+function searchLocalDB(pattern, hint, wordLengths) {
+  // DB has single words only — skip for multi-word searches
+  const patParts = pattern ? pattern.trim().split(/\s+/).filter(p => p.length > 0) : [];
+  if (patParts.length > 1) return [];
+  if (wordLengths.length > 1) return [];
+
+  const hintWords = hint
+    ? hint.trim().split(/\s+/).filter(w => w.length > 1)
+    : [];
+
+  const results = [];
+
+  for (const [word, definition] of Object.entries(HEB_WORDS_DB)) {
+    const hebrewChars = [...word].filter(c => c >= '\u05D0' && c <= '\u05EA');
+    const len = hebrewChars.length;
+
+    // Word length filter
+    if (wordLengths.length === 1 && len !== wordLengths[0]) continue;
+
+    // Pattern filter
+    if (patParts.length === 1 && patParts[0]) {
+      const patChars = [...patParts[0]].filter(c => (c >= '\u05D0' && c <= '\u05EA') || c === '_');
+      if (patChars.length !== len) continue;
+      let match = true;
+      for (let i = 0; i < patChars.length; i++) {
+        if (patChars[i] !== '_' && patChars[i] !== hebrewChars[i]) { match = false; break; }
+      }
+      if (!match) continue;
+    }
+
+    // Score: exact hint word matches in definition/word
+    const defAndWord = definition + ' ' + word;
+    let score = hintWords.filter(hw => defAndWord.includes(hw)).length;
+
+    // Fuzzy fallback: morphological variants (e.g. פלטר→פלטור)
+    // Only for short words (4-5 chars) to avoid noise with long/common words
+    if (hintWords.length > 0 && score === 0) {
+      const fuzzyMatch = hintWords.some(hw =>
+        hw.length >= 4 && hw.length <= 5 && defAndWord.includes(hw.slice(0, 3))
+      );
+      if (!fuzzyMatch) continue;
+      score = 0.5;
+    }
+
+    results.push({ answer: word, explanation: definition, local: true, score });
+  }
+
+  results.sort((a, b) => b.score - a.score || a.answer.length - b.answer.length);
+  return results.slice(0, 30);
 }
 
 // ---- Render ----
@@ -337,9 +521,9 @@ function renderResults(results, filteredOut = 0) {
   const ul = document.createElement('ul');
   ul.className = 'result-list';
 
-  results.forEach(({ answer, explanation }, i) => {
+  results.forEach(({ answer, explanation, exact, local }, i) => {
     const li = document.createElement('li');
-    li.className = 'result-item';
+    li.className = 'result-item' + (exact ? ' exact-match' : '');
     li.title = 'לחץ להעתקה';
     li.onclick = () => copyWord(answer, li);
 
@@ -353,6 +537,14 @@ function renderResults(results, filteredOut = 0) {
 
     li.appendChild(badge);
     li.appendChild(word);
+
+    if (local) {
+      const localBadge = document.createElement('span');
+      localBadge.className = 'local-badge';
+      localBadge.textContent = '📚';
+      localBadge.title = 'ממאגר מקומי';
+      li.appendChild(localBadge);
+    }
 
     if (explanation) {
       const exp = document.createElement('span');
@@ -440,3 +632,5 @@ window.appSetKey     = appSetKey;
 window.appSaveKey    = appSaveKey;
 window.appCloseModal = appCloseModal;
 window.appClearKey   = appClearKey;
+window.showHelp  = () => { document.getElementById('helpModal').style.display = 'flex'; };
+window.closeHelp = () => { document.getElementById('helpModal').style.display = 'none'; };
