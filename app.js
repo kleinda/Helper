@@ -240,7 +240,8 @@ function clearBoxes() {
 // ---- Mobile: parse free-text pattern ----
 function parseMobilePattern(raw) {
   if (!raw || !raw.trim()) return '';
-  const words = raw.trim().split(/[\s\-]+/).filter(Boolean);
+  // Split on spaces (word breaks), each segment: Hebrew→keep, else→_
+  const words = raw.split(' ').filter(w => w.length > 0);
   return words.map(w =>
     [...w].map(c => (c >= '\u05D0' && c <= '\u05EA') ? c : '_').join('')
   ).filter(w => w.length > 0).join(' ');
@@ -326,10 +327,16 @@ window.mobileInsertWordBreak = () => mobileInsertChar(' ');
 const mobilePatInput = document.getElementById('mobilePattern');
 if (mobilePatInput) {
   mobilePatInput.addEventListener('input', () => {
-    // Convert non-Hebrew chars to _ in real-time (hyphens → space for word break)
     const raw = mobilePatInput.value;
     const pos = mobilePatInput.selectionStart;
-    const converted = raw.replace(/-+/g, ' ').replace(/[^\u05D0-\u05EA\s_]/g, '_');
+    // char by char: Hebrew→keep, hyphen→space (word sep), space→_, else→_
+    const converted = [...raw].map(c => {
+      if (c >= '\u05D0' && c <= '\u05EA') return c; // Hebrew letter
+      if (c === '-') return ' ';  // hyphen = word break
+      if (c === ' ') return '_';  // space = unknown letter
+      if (c === '_') return '_';  // already underscore
+      return '_';                 // anything else = unknown
+    }).join('');
     if (converted !== raw) {
       mobilePatInput.value = converted;
       mobilePatInput.setSelectionRange(pos, pos);
