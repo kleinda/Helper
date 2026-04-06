@@ -304,6 +304,16 @@ function getWordLengths() {
 }
 
 // ---- Init ----
+// On mobile: make wl fields readonly (auto-synced from pattern, no need to tap)
+if (window.innerWidth <= 767) {
+  [1, 2, 3].forEach(i => {
+    const el = document.getElementById(`wl${i}`);
+    el.readOnly = true;
+    el.style.pointerEvents = 'none';
+    el.style.background = '#f0f0f0';
+    el.style.color = '#555';
+  });
+}
 updateApiKeyUI();
 hintInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); appSearch(); }
