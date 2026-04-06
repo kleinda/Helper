@@ -1,11 +1,14 @@
-// ai.js - Groq API (FREE: 1,000 requests/day)
-// Get key: https://console.groq.com/keys
+// ai.js - Groq (primary) + OpenRouter (fallback)
 
-const GROQ_URL   = 'https://api.groq.com/openai/v1/chat/completions';
-const GROQ_MODEL = 'llama-3.3-70b-versatile';
+const GROQ_URL    = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL  = 'llama-3.3-70b-versatile';
+const OR_URL      = 'https://openrouter.ai/api/v1/chat/completions';
+const OR_MODEL    = 'google/gemma-3-12b-it:free';
 
 let apiKey = null;
+let orKey  = null;
 
+// ---- Groq key ----
 export function getApiKey() {
   if (apiKey) return apiKey;
   apiKey = localStorage.getItem('groq_api_key');
@@ -18,6 +21,21 @@ export function saveApiKey(key) {
 export function clearApiKey() {
   apiKey = null;
   localStorage.removeItem('groq_api_key');
+}
+
+// ---- OpenRouter key ----
+export function getGeminiKey() {  // kept name for app.js compatibility
+  if (orKey) return orKey;
+  orKey = localStorage.getItem('or_api_key');
+  return orKey;
+}
+export function saveGeminiKey(key) {
+  orKey = key;
+  localStorage.setItem('or_api_key', key);
+}
+export function clearGeminiKey() {
+  orKey = null;
+  localStorage.removeItem('or_api_key');
 }
 
 const CAT_LABEL = {
@@ -35,10 +53,70 @@ const CAT_LABEL = {
 
 const SYSTEM = `אתה עוזר לפתור תשבצים וחידות מילים בעברית. עליך לענות תמיד בעברית בלבד. אל תכתוב אנגלית. אל תסרב לענות — תמיד הצע את הניחושים הטובים ביותר גם אם אינך בטוח. חשוב על מגוון רחב של מילים: מילים נרדפות, מילים יידישאיות (כמו פוזמק, קישקע, חלטורה), מילות סלנג, מילים ארכאיות, שמות עצם, פעלים, שמות תואר — כל מה שמתאים לרמז ולתבנית. חשוב מאוד: אל תחזיר את מילת הרמז עצמה כתשובה — התשובה חייבת להיות מילה אחרת שמתאימה לרמז, לא הרמז עצמו. כתוב בכתיב חסר כפי שמקובל בתשבצים עבריים — הסר רק ו' או י' שנוספו כאמות קריאה בלבד, לא אותיות השייכות לשורש (למשל: "עתון" ולא "עיתון", אך "סיעה" נכתבת עם י' כי זה השורש). ספור את האותיות בכתיב החסר הנכון.`;
 
-// ---- Shared HTTP call + response parser ----
+// ---- Shared response parser ----
+function _parseResults(text) {
+  const META = /^(להלן|הניחושים|הנה|אלה|אלו|תוצאות|ניחוש|תשובה|שאלה|בהתאם|לפי)/;
+  const results = [];
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const numMatch    = trimmed.match(/^\d+[.)]\s*(.+)/);
+    const bulletMatch = !numMatch && trimmed.match(/^[•\-*]\s+(.+)/);
+    const content     = (numMatch?.[1] || bulletMatch?.[1] || '').trim();
+    if (!content || META.test(content)) continue;
+    const dashIdx   = content.indexOf(' - ');
+    const answer    = (dashIdx > -1 ? content.slice(0, dashIdx) : content).trim();
+    let explanation = (dashIdx > -1 ? content.slice(dashIdx + 3) : '').trim();
+    if (!answer || answer.length < 2) continue;
+    if (/לא מתאים|לא רלוונטי|לא קשור|אינו מתאים/.test(explanation)) continue;
+    explanation = explanation.replace(/\([\d\+]+\)/g, '').replace(/\d+\s*אותיות/g, '').trim();
+    results.push({ answer, explanation });
+  }
+  return results;
+}
+
+// ---- OpenRouter API call (fallback) ----
+async function _callGemini(prompt) {
+  const key = getGeminiKey();
+  if (!key) throw new Error('NO_OR_KEY');
+
+  const response = await fetch(OR_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${key}`,
+      'HTTP-Referer': 'https://tracker-9fdec.web.app',
+      'X-Title': 'Helper Tashbetz'
+    },
+    body: JSON.stringify({
+      model: OR_MODEL,
+      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: prompt }],
+      max_tokens: 1000,
+      temperature: 0.6
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    const msg = err.error?.message || '';
+    if (response.status === 401) throw new Error('INVALID_OR_KEY');
+    if (response.status === 429) throw new Error('QUOTA: ' + msg);
+    throw new Error(msg || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  return _parseResults(text).map(r => ({ ...r, source: 'or' }));
+}
+
+// ---- Groq API call (primary) with Gemini fallback ----
 async function _callGroq(prompt) {
   const key = getApiKey();
-  if (!key) throw new Error('NO_API_KEY');
+  if (!key) {
+    // No Groq key — try Gemini directly
+    if (getGeminiKey()) return _callGemini(prompt);
+    throw new Error('NO_API_KEY');
+  }
 
   const response = await fetch(GROQ_URL, {
     method: 'POST',
@@ -56,30 +134,28 @@ async function _callGroq(prompt) {
     const msg = err.error?.message || '';
     if (response.status === 401)                                          throw new Error('INVALID_KEY');
     if (response.status === 404 || msg.toLowerCase().includes('model'))  throw new Error('MODEL_NOT_FOUND');
-    if (response.status === 429 || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) throw new Error('QUOTA: ' + msg);
+    if (response.status === 429 || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate')) {
+      // Groq quota exceeded — try Gemini fallback
+      if (getGeminiKey()) return _callGemini(prompt);
+      throw new Error('QUOTA: ' + msg);
+    }
+    // Other error — try Gemini fallback
+    if (getGeminiKey()) return _callGemini(prompt);
     throw new Error(msg || `HTTP ${response.status}`);
   }
 
   const data = await response.json();
   const text = data.choices?.[0]?.message?.content || '';
-  const META = /^(להלן|הניחושים|הנה|אלה|אלו|תוצאות|ניחוש|תשובה|שאלה|בהתאם|לפי)/;
+  const results = _parseResults(text).map(r => ({ ...r, source: 'groq' }));
 
-  const results = [];
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const numMatch    = trimmed.match(/^\d+[.)]\s*(.+)/);
-    const bulletMatch = !numMatch && trimmed.match(/^[•\-*]\s+(.+)/);
-    const content     = (numMatch?.[1] || bulletMatch?.[1] || '').trim();
-    if (!content || META.test(content)) continue;
-
-    const dashIdx   = content.indexOf(' - ');
-    const answer    = (dashIdx > -1 ? content.slice(0, dashIdx) : content).trim();
-    let explanation = (dashIdx > -1 ? content.slice(dashIdx + 3) : '').trim();
-    if (!answer || answer.length < 2) continue;
-    if (/לא מתאים|לא רלוונטי|לא קשור|אינו מתאים/.test(explanation)) continue;
-    explanation = explanation.replace(/\([\d\+]+\)/g, '').replace(/\d+\s*אותיות/g, '').trim();
-    results.push({ answer, explanation });
+  // If Groq returned few results — try Gemini fallback and merge
+  if (results.length < 3 && getGeminiKey()) {
+    try {
+      const geminiResults = await _callGemini(prompt);
+      const seen = new Set(results.map(r => r.answer));
+      const extra = geminiResults.filter(r => !seen.has(r.answer));
+      return [...results, ...extra];
+    } catch { /* Gemini failed, return Groq results */ }
   }
   return results;
 }

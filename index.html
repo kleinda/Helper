@@ -124,6 +124,31 @@
     </div>
   </div>
 
+  <!-- OpenRouter Key Modal -->
+  <div class="modal-overlay" id="geminiModal" style="display:none">
+    <div class="modal-box">
+      <h3>🔑 מפתח OpenRouter (חינמי)</h3>
+      <p>
+        קבל מפתח חינמי ב: <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>
+        <br>המפתח נשמר רק בדפדפן שלך.
+        <br>OpenRouter משמש כגיבוי כשGroq לא זמין.
+        <br>מודל: <code>google/gemma-3-12b-it:free</code>
+      </p>
+      <input type="text" id="geminiKeyInput" placeholder="AIza..."
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        inputmode="text" style="direction:ltr">
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" onclick="window.appCloseGeminiModal()">ביטול</button>
+        <button class="btn btn-secondary" onclick="window.appTestGeminiKey()" id="geminiTestBtn">בדוק</button>
+        <button class="btn btn-primary"   onclick="window.appSaveGeminiKey()">שמור</button>
+      </div>
+      <p id="geminiTestResult" style="margin-top:8px;font-size:0.85rem;display:none"></p>
+      <p style="margin-top:10px;font-size:0.78rem;color:#aaa">
+        למחיקה: <a href="#" onclick="window.appClearGeminiKey();return false">לחץ כאן</a>
+      </p>
+    </div>
+  </div>
+
   <!-- Help Modal -->
   <div class="modal-overlay" id="helpModal" style="display:none" onclick="window.closeHelp()">
     <div class="modal-box" onclick="event.stopPropagation()">

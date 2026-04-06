@@ -1,5 +1,5 @@
 // app.js - Main logic
-import { askGemini, getApiKey, saveApiKey, clearApiKey } from './ai.js';
+import { askGemini, getApiKey, saveApiKey, clearApiKey, getGeminiKey, saveGeminiKey, clearGeminiKey } from './ai.js';
 import { HEB_WORDS_DB } from './HebWordsHard.js';
 
 // ---- DOM refs ----
@@ -314,6 +314,7 @@ if (window.innerWidth <= 767) {
   document.getElementById('approxLen')?.setAttribute('tabindex', '-1');
 }
 updateApiKeyUI();
+updateGeminiKeyUI();
 hintInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); appSearch(); }
 });
@@ -561,7 +562,7 @@ function renderResults(results, filteredOut = 0) {
   const ul = document.createElement('ul');
   ul.className = 'result-list';
 
-  results.forEach(({ answer, explanation, exact, local }, i) => {
+  results.forEach(({ answer, explanation, exact, local, source }, i) => {
     const li = document.createElement('li');
     li.className = 'result-item' + (exact ? ' exact-match' : '');
     li.title = 'לחץ להעתקה';
@@ -578,13 +579,21 @@ function renderResults(results, filteredOut = 0) {
     li.appendChild(badge);
     li.appendChild(word);
 
+    const srcBadge = document.createElement('span');
+    srcBadge.className = 'local-badge';
     if (local) {
-      const localBadge = document.createElement('span');
-      localBadge.className = 'local-badge';
-      localBadge.textContent = '📚';
-      localBadge.title = 'ממאגר מקומי';
-      li.appendChild(localBadge);
+      srcBadge.textContent = '📚';
+      srcBadge.title = 'ממאגר מקומי';
+    } else if (source === 'or') {
+      srcBadge.textContent = 'OR';
+      srcBadge.title = 'OpenRouter AI';
+      srcBadge.style.cssText = 'font-size:0.65rem;font-weight:bold;color:#7c4dff;opacity:0.8';
+    } else {
+      srcBadge.textContent = 'GRO';
+      srcBadge.title = 'Groq AI';
+      srcBadge.style.cssText = 'font-size:0.65rem;font-weight:bold;color:#e8a020;opacity:0.8';
     }
+    li.appendChild(srcBadge);
 
     if (explanation) {
       const exp = document.createElement('span');
@@ -649,6 +658,73 @@ function appClearKey() {
   updateApiKeyUI();
 }
 
+// ---- Gemini key ----
+function updateGeminiKeyUI() {
+  // UI elements removed — no-op
+}
+function appSetGeminiKey() {
+  document.getElementById('geminiKeyInput').value = getGeminiKey() || '';
+  document.getElementById('geminiModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('geminiKeyInput').focus(), 50);
+}
+function appSaveGeminiKey() {
+  const val = document.getElementById('geminiKeyInput').value.trim();
+  if (!val) { alert('יש להזין מפתח'); return; }
+  saveGeminiKey(val);
+  document.getElementById('geminiModal').style.display = 'none';
+  updateGeminiKeyUI();
+}
+function appCloseGeminiModal() {
+  document.getElementById('geminiModal').style.display = 'none';
+  document.getElementById('geminiTestResult').style.display = 'none';
+}
+async function appTestGeminiKey() {
+  const val = document.getElementById('geminiKeyInput').value.trim() || getGeminiKey();
+  if (!val) { alert('הזן מפתח תחילה'); return; }
+  const btn = document.getElementById('geminiTestBtn');
+  const res = document.getElementById('geminiTestResult');
+  btn.disabled = true;
+  btn.textContent = 'בודק...';
+  res.style.display = 'none';
+  try {
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${val}`,
+        'HTTP-Referer': 'https://tracker-9fdec.web.app',
+        'X-Title': 'Helper Tashbetz'
+      },
+      body: JSON.stringify({
+        model: 'google/gemma-3-12b-it:free',
+        messages: [{ role: 'user', content: 'ענה במילה אחת בעברית: מה צבע השמיים?' }],
+        max_tokens: 20
+      })
+    });
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || '';
+    if (text) {
+      res.textContent = `✅ OpenRouter עובד! תשובה: "${text.trim()}"`;
+      res.style.color = '#2e7d32';
+    } else {
+      res.textContent = `⚠️ תגובה ריקה: ${JSON.stringify(data).slice(0, 100)}`;
+      res.style.color = '#e65100';
+    }
+  } catch (e) {
+    res.textContent = `❌ שגיאה: ${e.message}`;
+    res.style.color = '#c62828';
+  }
+  res.style.display = 'block';
+  btn.disabled = false;
+  btn.textContent = 'בדוק';
+}
+function appClearGeminiKey() {
+  if (!confirm('למחוק את מפתח Gemini?')) return;
+  clearGeminiKey();
+  document.getElementById('geminiModal').style.display = 'none';
+  updateGeminiKeyUI();
+}
+
 // ---- Helpers ----
 function setLoading(on) {
   searchBtn.innerHTML = on ? '<span class="spinner"></span> מחפש...' : '🔍 חפש';
@@ -670,7 +746,12 @@ window.addWordBreak  = addWordBreak;
 window.clearBoxes    = clearBoxes;
 window.appSetKey     = appSetKey;
 window.appSaveKey    = appSaveKey;
-window.appCloseModal = appCloseModal;
-window.appClearKey   = appClearKey;
+window.appCloseModal      = appCloseModal;
+window.appClearKey        = appClearKey;
+window.appSetGeminiKey    = appSetGeminiKey;
+window.appSaveGeminiKey   = appSaveGeminiKey;
+window.appCloseGeminiModal = appCloseGeminiModal;
+window.appTestGeminiKey   = appTestGeminiKey;
+window.appClearGeminiKey  = appClearGeminiKey;
 window.showHelp  = () => { document.getElementById('helpModal').style.display = 'flex'; };
 window.closeHelp = () => { document.getElementById('helpModal').style.display = 'none'; };
