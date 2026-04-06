@@ -304,15 +304,14 @@ function getWordLengths() {
 }
 
 // ---- Init ----
-// On mobile: make wl fields readonly (auto-synced from pattern, no need to tap)
+// On mobile: remove from tab/keyboard navigation so iOS doesn't show prev/next toolbar
 if (window.innerWidth <= 767) {
   [1, 2, 3].forEach(i => {
-    const el = document.getElementById(`wl${i}`);
-    el.readOnly = true;
-    el.style.pointerEvents = 'none';
-    el.style.background = '#f0f0f0';
-    el.style.color = '#555';
+    document.getElementById(`wl${i}`).tabIndex = -1;
   });
+  // Also remove category select and approx checkbox from nav
+  document.getElementById('categorySelect')?.setAttribute('tabindex', '-1');
+  document.getElementById('approxLen')?.setAttribute('tabindex', '-1');
 }
 updateApiKeyUI();
 hintInput.addEventListener('keydown', e => {
