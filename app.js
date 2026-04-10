@@ -804,9 +804,12 @@ function appClearGeminiKey() {
 
 // ---- OpenAI key ----
 function updateOpenAIKeyUI() {
+  const dot    = document.getElementById('openaiKeyDot');
+  const status = document.getElementById('openaiKeyStatus');
+  if (!dot || !status) return;   // HTML ישן ב-cache — לא קורסים
   const has = !!getOpenAIKey();
-  document.getElementById('openaiKeyDot').classList.toggle('set', has);
-  document.getElementById('openaiKeyStatus').textContent = has ? 'ChatGPT API מוגדר ✓' : 'ChatGPT API לא מוגדר';
+  dot.classList.toggle('set', has);
+  status.textContent = has ? 'ChatGPT API מוגדר ✓' : 'ChatGPT API לא מוגדר';
 }
 function appSetOpenAIKey() {
   document.getElementById('openaiKeyInput').value = getOpenAIKey() || '';
