@@ -1,5 +1,6 @@
 // app.js - Main logic
 import { askGemini, getApiKey, saveApiKey, clearApiKey, getGeminiKey, saveGeminiKey, clearGeminiKey } from './ai.js';
+import { askOpenAI, getOpenAIKey, saveOpenAIKey, clearOpenAIKey } from './openai.js';
 import { HEB_WORDS_DB } from './HebWordsHard.js';
 
 // ---- DOM refs ----
@@ -112,20 +113,22 @@ function syncWordLengthsFromPattern() {
   }
 
   // Count letters per word segment, splitting at wordBreaks
+  // Rule: 1 letter only → don't fill wl (length unknown); 2+ letters → fill with count
   const wordLens = [];
   let currentLen = 0;
   for (let i = 1; i <= lastFilled; i++) {
     const b = document.getElementById(`lb-${i}`);
     if (b.dataset.unknown === 'true' || (b.value && b.value !== '·')) currentLen++;
     if (wordBreaks.has(i)) {
-      wordLens.push(currentLen);
+      wordLens.push(currentLen >= 2 ? currentLen : 0);
       currentLen = 0;
     }
   }
-  if (currentLen > 0) wordLens.push(currentLen);
+  if (currentLen > 0) wordLens.push(currentLen >= 2 ? currentLen : 0);
 
   for (let i = 0; i < 3; i++) {
-    document.getElementById(`wl${i + 1}`).value = i < wordLens.length && wordLens[i] > 0 ? wordLens[i] : '';
+    const len = i < wordLens.length ? wordLens[i] : 0;
+    document.getElementById(`wl${i + 1}`).value = len > 0 ? len : '';
   }
 }
 
@@ -234,6 +237,10 @@ function clearBoxes() {
   hintInput.value = '';
   const mob = document.getElementById('mobilePattern');
   if (mob) { mob.value = ''; syncWlFromMobileInput(); }
+  // נקה גם תוצאות
+  resultsCard.style.display = 'none';
+  resultsDiv.innerHTML = '';
+  resultsCount.textContent = '';
   if (window.innerWidth > 767) focusBox(1);
 }
 
@@ -315,6 +322,7 @@ if (window.innerWidth <= 767) {
 }
 updateApiKeyUI();
 updateGeminiKeyUI();
+updateOpenAIKeyUI();
 hintInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); appSearch(); }
 });
@@ -392,7 +400,7 @@ async function appSearch() {
   const patternForFilter = skipLengthFilter ? '' : pattern;
 
   // Name-type clues → local DB irrelevant
-  const isNameClue = hint && (/שם פרטי/.test(hint) || /שם משפחה/.test(hint));
+  const isNameClue = hint && (/שם פרטי/.test(hint) || /שם משפחה/.test(hint) || /שם\s+של/.test(hint));
 
   // Local DB is a Hebrew word dictionary — relevant only when:
   // • no hint (pattern/length only), OR
@@ -404,26 +412,28 @@ async function appSearch() {
   // --- Step 1: Local search (instant, 0ms) ---
   const localRaw = useLocalDB ? searchLocalDB(pattern, hint, wordLengths)
     .filter(r => !hintSet.has(r.answer.trim().toLowerCase())) : [];
-  const { matched: localMatched, filteredOut: localFilteredOut } = splitByLength(localRaw, patternForFilter, wordLengths, approx);
+  const { matched: localMatched, notMatched: localNotMatched } = splitByLength(localRaw, patternForFilter, wordLengths, approx, pattern);
 
   resultsCard.style.display = 'block';
   resultsCount.textContent = '';
 
   if (localMatched.length > 0) {
-    renderResults(localMatched, localFilteredOut);
+    renderResults(localMatched, localNotMatched);
   } else {
     resultsDiv.innerHTML = '<p class="status-msg">מחפש...</p>';
   }
 
-  // --- Step 2: AI search (requires key) ---
-  if (!getApiKey()) {
+  // --- Step 2: AI search (Groq + ChatGPT במקביל) ---
+  const hasGroq   = !!getApiKey();
+  const hasOpenAI = !!getOpenAIKey();
+
+  if (!hasGroq && !hasOpenAI) {
     if (localMatched.length === 0) appSetKey();
     return;
   }
 
   setLoading(true);
 
-  // Append "searching AI" note under local results
   if (localMatched.length > 0) {
     const note = document.createElement('p');
     note.className = 'status-ai status-msg';
@@ -432,48 +442,98 @@ async function appSearch() {
   }
 
   try {
-    const aiResults = await askGemini(pattern, hint, category, wordLengths, approx);
+    // הפעל שני מנועים במקביל — כל אחד שיש לו מפתח
+    const calls = [];
+    if (hasGroq)   calls.push({ label: 'groq',   p: askGemini(pattern, hint, category, wordLengths, approx) });
+    if (hasOpenAI) calls.push({ label: 'openai', p: askOpenAI(pattern, hint, category, wordLengths, approx) });
 
-    // Merge: local first, then new AI results (deduplicated)
+    const settled = await Promise.allSettled(calls.map(c => c.p));
+
+    const aiResults = [];
+    const errors    = [];
+    settled.forEach((res, i) => {
+      if (res.status === 'fulfilled') aiResults.push(...res.value);
+      else errors.push({ label: calls[i].label, err: res.reason });
+    });
+
+    if (aiResults.length === 0 && localMatched.length === 0 && errors.length > 0) {
+      const err = errors[0].err;
+      if (err.message === 'NO_API_KEY' || err.message === 'NO_OPENAI_KEY')    showError('מפתח API לא מוגדר');
+      else if (err.message === 'INVALID_KEY' || err.message === 'INVALID_OPENAI_KEY') showError('מפתח API לא תקין');
+      else if (err.message === 'MODEL_NOT_FOUND') showError('מודל לא נמצא — נסה למחוק ולהכניס מחדש את המפתח');
+      else if (err.message.startsWith('QUOTA'))   showError('חרגת ממכסת השימוש. נסה מחר.');
+      else                                         showError('שגיאה: ' + err.message);
+      return;
+    }
+
+    // מיזוג: קודם מקומי, אח"כ AI (ללא כפילויות)
     const seen = new Set(localRaw.map(r => r.answer));
     const newFromAI = aiResults.filter(r => !seen.has(r.answer) && !hintSet.has(r.answer.trim().toLowerCase()));
     const allResults = [...localRaw, ...newFromAI];
 
-    const { matched, filteredOut } = splitByLength(allResults, patternForFilter, wordLengths, approx);
-    renderResults(matched, filteredOut);
+    const { matched, notMatched } = splitByLength(allResults, patternForFilter, wordLengths, approx, pattern);
+    renderResults(matched, notMatched);
   } catch (err) {
     if (localMatched.length > 0) {
-      // Keep local results, just remove the "searching AI" spinner note
       const note = resultsDiv.querySelector('.status-ai');
       if (note) note.remove();
     } else {
-      if (err.message === 'NO_API_KEY')           showError('מפתח API לא מוגדר');
-      else if (err.message === 'INVALID_KEY')     showError('מפתח API לא תקין');
-      else if (err.message === 'MODEL_NOT_FOUND') showError('מודל לא נמצא — נסה למחוק ולהכניס מחדש את מפתח Groq');
-      else if (err.message.startsWith('QUOTA:'))  showError('חרגת ממכסת השימוש החינמי. נסה מחר.');
-      else                                         showError('שגיאה: ' + err.message);
-      if (err.message === 'NO_API_KEY') appSetKey();
+      showError('שגיאה: ' + err.message);
     }
   } finally {
     setLoading(false);
   }
 }
 
-// ---- Split results: matched = correct length, filteredOut = wrong length ----
-function splitByLength(results, pattern, wordLengths, tolerance = 0) {
+// ---- Check if an answer matches known letters in the pattern ----
+function matchesPattern(answer, pattern) {
+  if (!pattern) return true;
+  const patWords = pattern.trim().split(/\s+/);
+  const ansWords = answer.trim().split(/\s+/);
+  return patWords.every((pat, i) => {
+    const word = ansWords[i] || '';
+    const patChars = [...pat].filter(c => (c >= '\u05D0' && c <= '\u05EA') || c === '_');
+    const wordChars = [...word].filter(c => c >= '\u05D0' && c <= '\u05EA');
+    for (let j = 0; j < patChars.length; j++) {
+      if (patChars[j] !== '_' && patChars[j] !== wordChars[j]) return false;
+    }
+    return true;
+  });
+}
+
+// ---- Split results: matched = correct length+pattern, notMatched = shown below ----
+// letterPattern: always the original pattern (for letter constraints)
+// pattern: may be empty when length filter is skipped
+function splitByLength(results, pattern, wordLengths, tolerance = 0, letterPattern = '') {
   let expected = [];
   if (wordLengths.length > 0) {
     expected = wordLengths;           // explicit user input wins
   } else if (pattern) {
     expected = pattern.split(' ').map(wp => [...wp].length);
   }
-  if (expected.length === 0) return { matched: results, filteredOut: 0 };
 
-  const matched = [];
-  let filteredOut = 0;
+  const matched    = [];
+  const notMatched = [];
   for (const r of results) {
+    // Letter constraint always applies — results with wrong letters are dropped entirely
+    const patOk = matchesPattern(r.answer, letterPattern || pattern);
+    if (!patOk) continue;
+
+    if (expected.length === 0) {
+      // No length filter — letter matched, show it.
+      // But skip results whose length equals the known-letter count (e.g. pattern "פס" → skip "פס").
+      const lp = letterPattern || pattern;
+      if (lp) {
+        const knownCount = [...lp.replace(/\s/g, '')].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
+        const ansCount   = [...r.answer].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
+        if (ansCount <= knownCount) continue;
+      }
+      matched.push({ ...r, exact: true });
+      continue;
+    }
+
     const words = r.answer.trim().split(/\s+/);
-    if (words.length !== expected.length) { filteredOut++; continue; }
+    if (words.length !== expected.length) { notMatched.push({ ...r, exact: false }); continue; }
     const exact = words.every((w, i) => {
       const n = [...w].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
       return n === expected[i];
@@ -482,7 +542,7 @@ function splitByLength(results, pattern, wordLengths, tolerance = 0) {
       const n = [...w].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
       return Math.abs(n - expected[i]) <= tolerance;
     });
-    if (ok) matched.push({ ...r, exact }); else filteredOut++;
+    if (ok) matched.push({ ...r, exact }); else notMatched.push({ ...r, exact: false });
   }
   // Sort: exact length match first, then by total letter count ascending
   matched.sort((a, b) => {
@@ -490,7 +550,7 @@ function splitByLength(results, pattern, wordLengths, tolerance = 0) {
     const count = s => [...s].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
     return count(a.answer) - count(b.answer);
   });
-  return { matched, filteredOut };
+  return { matched, notMatched };
 }
 
 // ---- Local dictionary search (HebWordsHard.js) ----
@@ -546,23 +606,21 @@ function searchLocalDB(pattern, hint, wordLengths) {
 }
 
 // ---- Render ----
-function renderResults(results, filteredOut = 0) {
+function renderResults(results, notMatched = []) {
   resultsDiv.innerHTML = '';
 
-  if (!results.length) {
-    const msg = filteredOut > 0
-      ? `<p class="status-msg">ה-AI הציע ${filteredOut} תשובות אך אף אחת לא מתאימה לאורך המבוקש. נסה לנסח את הרמז אחרת.</p>`
-      : '<p class="status-msg">לא נמצאו תוצאות. נסה רמז אחר.</p>';
-    resultsDiv.innerHTML = msg;
+  if (!results.length && !notMatched.length) {
+    resultsDiv.innerHTML = '<p class="status-msg">לא נמצאו תוצאות. נסה רמז אחר.</p>';
     resultsCount.textContent = '';
     return;
   }
 
-  resultsCount.textContent = `${results.length} הצעות`;
+  const total = results.length + notMatched.length;
+  resultsCount.textContent = `${total} הצעות`;
   const ul = document.createElement('ul');
   ul.className = 'result-list';
 
-  results.forEach(({ answer, explanation, exact, local, source }, i) => {
+  const addItem = ({ answer, explanation, exact, local, source }, i) => {
     const li = document.createElement('li');
     li.className = 'result-item' + (exact ? ' exact-match' : '');
     li.title = 'לחץ להעתקה';
@@ -574,7 +632,8 @@ function renderResults(results, filteredOut = 0) {
 
     const word = document.createElement('span');
     word.className = 'result-word';
-    word.textContent = answer;
+    const answerLen = [...answer].filter(c => c >= '\u05D0' && c <= '\u05EA').length;
+    word.textContent = answer + ` (${answerLen})`;
 
     li.appendChild(badge);
     li.appendChild(word);
@@ -588,6 +647,10 @@ function renderResults(results, filteredOut = 0) {
       srcBadge.textContent = 'OR';
       srcBadge.title = 'OpenRouter AI';
       srcBadge.style.cssText = 'font-size:0.65rem;font-weight:bold;color:#7c4dff;opacity:0.8';
+    } else if (source === 'gpt') {
+      srcBadge.textContent = 'GPT';
+      srcBadge.title = 'ChatGPT AI';
+      srcBadge.style.cssText = 'font-size:0.65rem;font-weight:bold;color:#10a37f;opacity:0.9';
     } else {
       srcBadge.textContent = 'GRO';
       srcBadge.title = 'Groq AI';
@@ -601,8 +664,22 @@ function renderResults(results, filteredOut = 0) {
       exp.textContent = explanation;
       li.appendChild(exp);
     }
+
     ul.appendChild(li);
-  });
+  };
+
+  results.forEach((r, i) => addItem(r, i));
+
+  // Show non-matching-length results below a divider
+  if (notMatched.length > 0) {
+    if (results.length > 0) {
+      const sep = document.createElement('li');
+      sep.style.cssText = 'list-style:none;text-align:center;font-size:0.75rem;color:#999;padding:6px 0;border-top:1px dashed #ddd;margin-top:4px';
+      sep.textContent = '— אורך שונה —';
+      ul.appendChild(sep);
+    }
+    notMatched.forEach((r, i) => addItem(r, results.length + i));
+  }
 
   resultsDiv.appendChild(ul);
   sizeResultsDiv();
@@ -725,6 +802,34 @@ function appClearGeminiKey() {
   updateGeminiKeyUI();
 }
 
+// ---- OpenAI key ----
+function updateOpenAIKeyUI() {
+  const has = !!getOpenAIKey();
+  document.getElementById('openaiKeyDot').classList.toggle('set', has);
+  document.getElementById('openaiKeyStatus').textContent = has ? 'ChatGPT API מוגדר ✓' : 'ChatGPT API לא מוגדר';
+}
+function appSetOpenAIKey() {
+  document.getElementById('openaiKeyInput').value = getOpenAIKey() || '';
+  document.getElementById('openaiModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('openaiKeyInput').focus(), 50);
+}
+function appSaveOpenAIKey() {
+  const val = document.getElementById('openaiKeyInput').value.trim();
+  if (!val) { alert('יש להזין מפתח'); return; }
+  saveOpenAIKey(val);
+  document.getElementById('openaiModal').style.display = 'none';
+  updateOpenAIKeyUI();
+}
+function appCloseOpenAIModal() {
+  document.getElementById('openaiModal').style.display = 'none';
+}
+function appClearOpenAIKey() {
+  if (!confirm('למחוק את מפתח ChatGPT?')) return;
+  clearOpenAIKey();
+  document.getElementById('openaiModal').style.display = 'none';
+  updateOpenAIKeyUI();
+}
+
 // ---- Helpers ----
 function setLoading(on) {
   searchBtn.innerHTML = on ? '<span class="spinner"></span> מחפש...' : '🔍 חפש';
@@ -753,5 +858,9 @@ window.appSaveGeminiKey   = appSaveGeminiKey;
 window.appCloseGeminiModal = appCloseGeminiModal;
 window.appTestGeminiKey   = appTestGeminiKey;
 window.appClearGeminiKey  = appClearGeminiKey;
+window.appSetOpenAIKey    = appSetOpenAIKey;
+window.appSaveOpenAIKey   = appSaveOpenAIKey;
+window.appCloseOpenAIModal = appCloseOpenAIModal;
+window.appClearOpenAIKey  = appClearOpenAIKey;
 window.showHelp  = () => { document.getElementById('helpModal').style.display = 'flex'; };
 window.closeHelp = () => { document.getElementById('helpModal').style.display = 'none'; };

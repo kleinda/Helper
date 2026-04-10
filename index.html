@@ -26,7 +26,6 @@
           <button type="button" class="btn-box-action btn-wordsep" onclick="window.addWordBreak()">| הפרד מילה</button>
           <button type="button" class="btn-box-action btn-clear"    onclick="window.clearBoxes()">✕ נקה</button>
         </div>
-        <span class="pattern-hint">הקלד אות · Space/. = לא ידוע · מקף = הפרד מילה · האחרון קובע אורך</span>
       </div>
 
       <!-- Mobile pattern input — mobile only -->
@@ -90,6 +89,11 @@
         <span id="apiKeyStatus">Groq API לא מוגדר</span>
         <button class="btn btn-secondary" style="padding:4px 10px;font-size:0.8rem" onclick="window.appSetKey()">הגדר</button>
       </div>
+      <div class="api-key-row">
+        <div class="api-key-dot" id="openaiKeyDot"></div>
+        <span id="openaiKeyStatus">ChatGPT API לא מוגדר</span>
+        <button class="btn btn-secondary" style="padding:4px 10px;font-size:0.8rem" onclick="window.appSetOpenAIKey()">הגדר</button>
+      </div>
     </div>
 
     <!-- Results -->
@@ -145,6 +149,28 @@
       <p id="geminiTestResult" style="margin-top:8px;font-size:0.85rem;display:none"></p>
       <p style="margin-top:10px;font-size:0.78rem;color:#aaa">
         למחיקה: <a href="#" onclick="window.appClearGeminiKey();return false">לחץ כאן</a>
+      </p>
+    </div>
+  </div>
+
+  <!-- OpenAI Key Modal -->
+  <div class="modal-overlay" id="openaiModal" style="display:none">
+    <div class="modal-box">
+      <h3>🔑 מפתח ChatGPT API</h3>
+      <p>
+        קבל מפתח ב: <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com/api-keys</a>
+        <br>המפתח נשמר רק בדפדפן שלך.
+        <br>מודל: <code>gpt-4.1-nano</code> (חסכוני במיוחד).
+      </p>
+      <input type="text" id="openaiKeyInput" placeholder="sk-..."
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        inputmode="text" style="direction:ltr">
+      <div class="modal-buttons">
+        <button class="btn btn-secondary" onclick="window.appCloseOpenAIModal()">ביטול</button>
+        <button class="btn btn-primary"   onclick="window.appSaveOpenAIKey()">שמור</button>
+      </div>
+      <p style="margin-top:10px;font-size:0.78rem;color:#aaa">
+        למחיקה: <a href="#" onclick="window.appClearOpenAIKey();return false">לחץ כאן</a>
       </p>
     </div>
   </div>

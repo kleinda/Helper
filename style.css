@@ -73,6 +73,11 @@ header h1 {
   border: 2px solid #ff8c00;
 }
 
+/* בלוק קלט — רקע כחלחל בהיר */
+.card:first-of-type {
+  background: #eef4fb;
+}
+
 
 .card h2 {
   font-size: 1.1rem;
@@ -390,11 +395,12 @@ header h1 {
 
 /* Exact length match */
 .result-item.exact-match {
-  background: #fffde7;
-  border-color: #f9c74f;
+  background: #fff8c5;
+  border-color: #e8a020;
+  border-width: 2px;
 }
 .result-item.exact-match:hover {
-  background: #fff9c4;
+  background: #fff0a0;
 }
 
 .result-word {

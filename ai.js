@@ -167,6 +167,44 @@ export async function askGemini(pattern, hint, category, wordLengths = [], toler
   const catLabel = CAT_LABEL[category] || CAT_LABEL.all;
   const lenRange = (n) => tolerance > 0 ? `בין ${n - tolerance} ל-${n + tolerance} אותיות` : `בדיוק ${n} אותיות`;
 
+  // ---- "שם של X" / "שם X" clue — search for names of X ----
+  const shmShel = hint && (hint.match(/שם\s+של\s+(.+)/) || hint.match(/שם\s+(?!פרטי|משפחה)(\S.+)/));
+  if (shmShel) {
+    const subject = shmShel[1].trim();
+    // Build a clear letter-constraint hint from the pattern
+    let patHint = '';
+    if (pattern) {
+      const patWords = pattern.split(' ');
+      const constraints = patWords.map((pw, i) => {
+        const known = [...pw].map((c, j) => (c >= '\u05D0' && c <= '\u05EA') ? `אות ${j + 1} = "${c}"` : null).filter(Boolean);
+        return known.length ? `מילה ${i + 1}: ${known.join(', ')}` : null;
+      }).filter(Boolean);
+      if (constraints.length) patHint = ` (אילוצי אותיות: ${constraints.join('; ')})`;
+    }
+
+    // Build size hint — if multi-word, describe each part
+    let sizeHint = '';
+    if (wordLengths.length >= 2) {
+      sizeHint = ` (שם מלא של ${wordLengths.length} מילים: ${wordLengths.map((l, i) => `מילה ${i + 1} — ${lenRange(l)}`).join(', ')})`;
+    } else if (wordLengths.length === 1) {
+      sizeHint = ` (${lenRange(wordLengths[0])})`;
+    }
+
+    // If multi-word expected, explicitly ask for full name (first + last)
+    const fullNameNote = wordLengths.length >= 2
+      ? `\nחשוב: כתוב שם מלא (שם פרטי + שם משפחה) — לא רק שם פרטי בודד.`
+      : '';
+
+    const lines = [
+      `רשום עד 20 שמות של ${subject} ידועים${sizeHint}.${patHint}${fullNameNote}`,
+      `החזר שמות בלבד — לא הגדרות, לא פעלים, לא תיאורים.`,
+      ``,
+      `פורמט — התחל ישירות עם 1:`,
+      `1. [שם מלא] - [הסבר קצר]`,
+    ];
+    return _callGroq(lines.join('\n'));
+  }
+
   // ---- Name-type clue: build a focused prompt ----
   const hasFirstName  = hint && /שם פרטי/.test(hint);
   const hasFamilyName = hint && /שם משפחה/.test(hint);
@@ -177,7 +215,6 @@ export async function askGemini(pattern, hint, category, wordLengths = [], toler
       : hint.match(/שם משפחה\s+(\S+)/);
     const knownName  = nameMatch ? nameMatch[1] : '';
     const answerType = hasFirstName ? 'שם משפחה' : 'שם פרטי';
-    const searchType = hasFirstName ? 'ששמם הפרטי' : 'ששם משפחתם';
     // Extract domain keywords — remove meta-phrases and stop words
     const STOP = /^(עם|של|את|אל|כי|גם|רק|לא|כל|אבל|או|אך|כן|בו|בה|לו|לה|הם|הן|חפש|מצא)$/;
     const domainWords = hint
@@ -212,14 +249,26 @@ export async function askGemini(pattern, hint, category, wordLengths = [], toler
   if (pattern) {
     const wordPatterns = pattern.split(' ');
     if (wordPatterns.length === 1) {
-      const len = [...wordPatterns[0]].length;
-      lines.push(`• תבנית: "${pattern}" — מילה אחת בלבד, ${lenRange(len)} (קו תחתון = אות לא ידועה)`);
-      lines.push(`• אל תכתוב שם מורחב או ביטוי — מילה אחת בלבד`);
+      const hasUnknowns = wordPatterns[0].includes('_');
+      if (hasUnknowns) {
+        const len = [...wordPatterns[0]].length;
+        lines.push(`• תבנית: "${pattern}" — מילה אחת בלבד, ${lenRange(len)} (קו תחתון = אות לא ידועה)`);
+        lines.push(`• אל תכתוב שם מורחב או ביטוי — מילה אחת בלבד`);
+      } else {
+        // No underscores → pattern is a known prefix, length unknown
+        lines.push(`• התשובה מתחילה באותיות: "${pattern}" (המשך לפי הרמז, כל אורך מתאים)`);
+        lines.push(`• אל תכתוב שם מורחב או ביטוי — מילה אחת בלבד`);
+      }
     } else {
       lines.push(`• תשובה של ${wordPatterns.length} מילים נפרדות:`);
       wordPatterns.forEach((wp, i) => {
-        const len = [...wp].length;
-        lines.push(`  מילה ${i + 1}: "${wp}" — ${lenRange(len)}`);
+        const hasUnknowns = wp.includes('_');
+        if (hasUnknowns) {
+          const len = [...wp].length;
+          lines.push(`  מילה ${i + 1}: "${wp}" — ${lenRange(len)}`);
+        } else {
+          lines.push(`  מילה ${i + 1}: מתחילה ב-"${wp}" (כל אורך)`);
+        }
       });
       lines.push(`• ספור את האותיות בכל מילה לפני שאתה עונה.`);
     }
