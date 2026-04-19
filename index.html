@@ -24,8 +24,8 @@
           <div class="letter-boxes" id="letterBoxes"></div>
         </div>
         <div class="box-actions">
-          <button type="button" class="btn-box-action btn-unknown"  onclick="window.markUnknown()">· אות לא ידועה</button>
-          <button type="button" class="btn-box-action btn-wordsep" onclick="window.addWordBreak()">| הפרד מילה  [-]</button>
+          <button type="button" class="btn-box-action btn-unknown"  onmousedown="event.preventDefault()" onclick="window.markUnknown()">· אות לא ידועה</button>
+          <button type="button" class="btn-box-action btn-wordsep" onmousedown="event.preventDefault()" onclick="window.addWordBreak()">| הפרד מילה  [-]</button>
           <button type="button" class="btn-box-action btn-clear"    onclick="window.clearBoxes()">✕ נקה</button>
         </div>
       </div>

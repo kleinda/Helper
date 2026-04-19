@@ -221,8 +221,6 @@ function addWordBreak() {
   if (!box) return;
   const idx = +box.dataset.idx;
   toggleWordBreak(idx);
-  // מחזירים פוקוס לאותה תיבה — לא לבאה
-  setTimeout(() => box.focus(), 0);
 }
 
 function clearBoxes() {
