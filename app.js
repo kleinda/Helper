@@ -220,9 +220,9 @@ function addWordBreak() {
     ? document.activeElement : lastFocusedBox;
   if (!box) return;
   const idx = +box.dataset.idx;
-  // Add break after current box, move focus to next
   toggleWordBreak(idx);
-  focusBox(idx + 1);
+  // מחזירים פוקוס לאותה תיבה — לא לבאה
+  setTimeout(() => box.focus(), 0);
 }
 
 function clearBoxes() {
@@ -339,7 +339,7 @@ function mobileInsertChar(ch) {
   inp.focus();
 }
 window.mobileInsertUnknown   = () => mobileInsertChar('_');
-window.mobileInsertWordBreak = () => mobileInsertChar(' ');
+window.mobileInsertWordBreak = () => mobileInsertChar('-'); // - → רווח (הפרדת מילה)
 
 // Mobile pattern input
 const mobilePatInput = document.getElementById('mobilePattern');
