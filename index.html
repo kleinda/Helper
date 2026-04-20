@@ -39,9 +39,11 @@
           enterkeyhint="search" dir="rtl"
           style="font-size:1.6rem;font-weight:bold;text-align:center;letter-spacing:6px;padding:12px;font-family:monospace">
         <div class="box-actions" style="margin-top:6px">
+          <button type="button" class="btn-box-action btn-unknown"  onclick="window.mobileInsertUnknown()">· אות לא ידועה</button>
           <button type="button" class="btn-box-action btn-wordsep" onclick="window.mobileInsertWordBreak()">| הפרד מילה</button>
           <button type="button" class="btn-box-action btn-clear"   onclick="window.clearBoxes()">✕ נקה</button>
         </div>
+        <span class="pattern-hint" style="margin-top:4px;display:block">רווח/_ = אות לא ידועה &nbsp;·&nbsp; מקף = מילה חדשה</span>
       </div>
 
       <!-- Word-length alternative (no letters known) -->

@@ -247,8 +247,8 @@ function clearBoxes() {
 // ---- Mobile: parse free-text pattern ----
 function parseMobilePattern(raw) {
   if (!raw || !raw.trim()) return '';
-  // Split on spaces (word breaks), each segment: Hebrew→keep, else→_
-  const words = raw.split(' ').filter(w => w.length > 0);
+  // פיצול על מקף (מפריד מילה), כל שאר תו חוץ מעברית = _
+  const words = raw.split('-').filter(w => w.length > 0);
   return words.map(w =>
     [...w].map(c => (c >= '\u05D0' && c <= '\u05EA') ? c : '_').join('')
   ).filter(w => w.length > 0).join(' ');
@@ -347,13 +347,12 @@ if (mobilePatInput) {
   mobilePatInput.addEventListener('input', () => {
     const raw = mobilePatInput.value;
     const pos = mobilePatInput.selectionStart;
-    // char by char: Hebrew→keep, hyphen→space (word sep), space→_, else→_
+    // Hebrew→keep, -→- (מפריד מילה, יישאר יציב), space/else→_
     const converted = [...raw].map(c => {
-      if (c >= '\u05D0' && c <= '\u05EA') return c; // Hebrew letter
-      if (c === '-') return ' ';  // hyphen = word break
-      if (c === ' ') return '_';  // space = unknown letter
-      if (c === '_') return '_';  // already underscore
-      return '_';                 // anything else = unknown
+      if (c >= '\u05D0' && c <= '\u05EA') return c;
+      if (c === '-') return '-';  // מפריד מילה — נשאר כמו שהוא
+      if (c === '_') return '_';  // אות לא ידועה
+      return '_';                 // רווח וכל שאר = אות לא ידועה
     }).join('');
     if (converted !== raw) {
       mobilePatInput.value = converted;
