@@ -182,10 +182,10 @@ function onBoxKeydown(e) {
       break;
 
     case '-':
-      // Add/remove word break after this box
       e.preventDefault();
-      toggleWordBreak(idx);
-      focusBox(idx + 1);
+      // אם התיבה ריקה — break שייך אחרי הקודמת (שם האות האחרונה)
+      toggleWordBreak(!box.value && box.dataset.unknown !== 'true' && idx > 1 ? idx - 1 : idx);
+      if (box.value || box.dataset.unknown === 'true') focusBox(idx + 1);
       break;
 
     case 'ArrowRight': e.preventDefault(); focusBox(idx - 1); break;
@@ -219,7 +219,9 @@ function addWordBreak() {
   const box = document.activeElement?.classList.contains('letter-box')
     ? document.activeElement : lastFocusedBox;
   if (!box) return;
-  const idx = +box.dataset.idx;
+  let idx = +box.dataset.idx;
+  // אם התיבה הנוכחית ריקה — הפרדה שייכת אחרי התיבה הקודמת
+  if (!box.value && box.dataset.unknown !== 'true' && idx > 1) idx--;
   toggleWordBreak(idx);
 }
 
